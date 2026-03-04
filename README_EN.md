@@ -30,10 +30,10 @@ PWM-controlled pump for closed-loop gas circuit sampling:
 
 ### Timestamp Alignment & NTP Synchronization
 
-The system ensures accurate timestamps through a dual mechanism:
+The system ensures accurate and uniform timestamps through a dual mechanism:
 
 1. **NTP Time Sync**: Before each measurement cycle, the ESP32 synchronizes with an NTP server to correct accumulated drift in its internal RTC clock (embedded crystal oscillators can drift by several seconds to tens of seconds per day)
-2. **Grid Alignment**: All timestamps are aligned to 30-second boundaries (`00:00:00`, `00:00:30`, `00:01:00`...), ensuring uniform data intervals
+2. **Grid Alignment**: All timestamps are aligned to 10-minute boundaries (`00:00:00`, `00:10:00`, `00:20:00`...), ensuring uniform data intervals
 
 **Significance of Timestamp Alignment**:
 
@@ -46,7 +46,8 @@ The system ensures accurate timestamps through a dual mechanism:
 
 **Implementation Details**:
 - A single measurement takes ~45 seconds (25s pump sampling + 20s pressure stabilization), but the uploaded timestamp reflects the **scheduled time**, not the completion time
-- After power recovery, the system automatically calculates the next nearest 10-minute mark
+- After each measurement, the system syncs with the NTP server and calculates the next 10-minute mark as the next sampling time; same applies after power recovery
+- This design trades off exact timestamp-to-sample correspondence for well-aligned timestamp sequences and reduced NTP query frequency
 
 ### Multi-Anchor Drift Compensation Algorithm
 
@@ -108,7 +109,7 @@ See [Hardware Documentation](docs/HARDWARE.md) for complete wiring instructions.
 ```bash
 cd firmware
 cp src/config.h.example src/config.h
-# Edit config.h with your WiFi and server information
+# Edit config.h with your personal configuration
 ```
 
 Compile and upload using PlatformIO:
@@ -125,7 +126,7 @@ cp config.php.example config.php
 # Edit config.php with your database information
 ```
 
-Import sample data (includes table structure and Jan 3-9 test data):
+Import sample data (includes table structure and test data):
 
 ```bash
 mysql -u your_user -p co2data < data/sample_data.sql
@@ -194,7 +195,7 @@ esp32-co2-drift-compensator/
 │   ├── sensor_data.php    # Data reception API
 │   └── config.php.example
 ├── data/
-│   └── sample_data.sql    # Sample data (Jan 3-9 test)
+│   └── sample_data.sql    # Sample data (test data)
 ├── docs/
 │   ├── HARDWARE.md        # Hardware wiring guide
 │   └── images/
@@ -206,7 +207,7 @@ esp32-co2-drift-compensator/
 This project was originally developed to monitor algae respiration in sealed chambers, but the concepts are applicable to other scenarios involving:
 
 - Poor gas circuit sealing
-- Long-term continuous CO2 or other gas monitoring
+- Long-term continuous CO2 or other sensor data monitoring
 - Sensor long-term drift issues
 
 ## Tech Stack
