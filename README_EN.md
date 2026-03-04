@@ -12,21 +12,28 @@ A pump-based closed-loop CO2 monitoring system designed for sealed chambers (e.g
 
 ## Core Features
 
-### Closed-Loop Pump Sampling
+### Multi-Anchor Drift Compensation Algorithm
 
-PWM-controlled pump for closed-loop gas circuit sampling:
+**Problem**: Sealed gas circuits inevitably leak over time, causing a systematic downward drift in CO2 readings that masks the true biological activity signal.
 
-1. Pump circulation (adjustable duration and intensity)
-2. Stop pump, wait for pressure stabilization
-3. Read sensor data
-4. Real-time upload to server
+**Solution**: A non-linear drift compensation algorithm implemented in the frontend:
 
-### Automatic Startup
+1. **Anchor Selection (Cycle-Closure Method)**: Select start and end points of a complete light-dark cycle as anchors. Theoretically, after one complete cycle, CO2 should return to a similar level; the measured difference represents cumulative drift within that cycle. Essentially, gas leakage superimposes a downward trend onto the periodic biological fluctuations; the compensation algorithm levels this tilted baseline to restore the true biological signal
+   > *Note: The cycle-closure method has considerable error margin. It is only suitable for scenarios where drift trends are clearly discernible, aimed at restoring approximate periodic waveforms rather than precise quantitative analysis
 
-- Power-on auto-start, no manual intervention required
-- Multi-WiFi hotspot support with automatic switching
-- Auto-resume after power recovery
-- Automatic timestamp alignment to fixed intervals
+2. **Slope Calculation**: Linear regression on each anchor period to extract drift rate (ppm/h)
+3. **Interpolated Transition**: Linear interpolation between anchors for smooth drift rate transitions
+4. **Cumulative Correction**: Integrate the drift rate over time, subtract accumulated drift from raw readings
+
+**Mathematical Expression**:
+
+- Anchor drift rate (linear regression slope):
+ 
+ $$slope = \frac{n \sum x_i y_i - \sum x_i \sum y_i}{n \sum x_i^2 - (\sum x_i)^2}$$
+
+- Corrected value (cumulative integral):
+ 
+ $$CO_{2,corrected} = CO_{2,raw} - \int_0^t slope(\tau) \, d\tau$$
 
 ### Timestamp Alignment & NTP Synchronization
 
@@ -45,28 +52,21 @@ The system ensures accurate and uniform timestamps through a dual mechanism:
 | Multi-device Data Fusion | Inconsistent time bases across devices preclude cross-comparison analysis | Unified time reference enables direct overlay and comparison of multi-source data |
 | Data Indexing Efficiency | Scattered timestamps (`14:07:23`, `14:17:41`...) reduce retrieval and archival efficiency | Regularized timestamps (`14:00:00`, `14:10:00`...) facilitate indexing and visualization |
 
-### Multi-Anchor Drift Compensation Algorithm
+### Closed-Loop Pump Sampling
 
-**Problem**: Sealed gas circuits inevitably leak over time, causing a systematic downward drift in CO2 readings that masks the true biological activity signal.
+PWM-controlled pump for closed-loop gas circuit sampling:
 
-**Solution**: A non-linear drift compensation algorithm implemented in the frontend:
+1. Pump circulation (adjustable duration and intensity)
+2. Stop pump, wait for pressure stabilization
+3. Read sensor data
+4. Real-time upload to server
 
-1. **Anchor Selection (Cycle-Closure Method)**: Select start and end points of a complete light-dark cycle as anchors. Theoretically, after one complete cycle, CO2 should return to a similar level; the measured difference represents cumulative drift within that cycle. Essentially, gas leakage superimposes a downward trend onto the periodic biological fluctuations; the compensation algorithm levels this tilted baseline to restore the true biological signal
-   >  Note: The cycle-closure method has considerable error margin. It is only suitable for scenarios where drift trends are clearly discernible, aimed at restoring approximate periodic waveforms rather than precise quantitative analysis
+### Automatic Startup
 
-2. **Slope Calculation**: Linear regression on each anchor period to extract drift rate (ppm/h)
-3. **Interpolated Transition**: Linear interpolation between anchors for smooth drift rate transitions
-4. **Cumulative Correction**: Integrate the drift rate over time, subtract accumulated drift from raw readings
-
-**Mathematical Expression**:
-
-- Anchor drift rate (linear regression slope):
- 
- $$slope = \frac{n \sum x_i y_i - \sum x_i \sum y_i}{n \sum x_i^2 - (\sum x_i)^2}$$
-
-- Corrected value (cumulative integral):
- 
- $$CO_{2,corrected} = CO_{2,raw} - \int_0^t slope(\tau) \, d\tau$$
+- Power-on auto-start, no manual intervention required
+- Multi-WiFi hotspot support with automatic switching
+- Auto-resume after power recovery
+- Automatic timestamp alignment to fixed intervals
 
 ### Complete IoT Data Pipeline
 
