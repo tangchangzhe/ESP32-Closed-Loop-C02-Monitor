@@ -1,62 +1,79 @@
-# ESP32 Closed-Loop CO2 Monitor with Drift Compensation
+# ESP32 Closed-Loop CO2 Monitoring System (with Drift Compensation)
 
 [中文文档](README.md)
 
-A pump-based closed-loop CO2 monitoring system for sealed chambers (e.g., microbial culture vessels), featuring built-in multi-anchor drift compensation algorithm for low-cost applications with gas leakage.
+A pump-based closed-loop CO2 monitoring system designed for sealed chambers (e.g., microbial culture vessels), featuring a multi-anchor drift compensation algorithm to address gas leakage issues inherent in low-cost sealed setups.
 
 ## Demo
 
-| Raw Data (Leakage causes continuous decline) | Compensated Data (Restored true fluctuation) |
-| -------------------------------------------- | -------------------------------------------- |
-| ![Raw](docs/images/before_compensation.png)  | ![Compensated](docs/images/after_compensation.png) |
+| Raw Data (Continuous drop due to leakage) | Compensated Data (Restored true fluctuations) |
+| ----------------------------------------- | --------------------------------------------- |
+| ![Raw](docs/images/before_compensation.png) | ![Compensated](docs/images/after_compensation.png) |
 
-## Features
+## Core Features
 
-### Pump-Based Closed-Loop Sampling
+### Closed-Loop Pump Sampling
 
-PWM-controlled air pump for closed-loop gas circuit sampling:
+PWM-controlled pump for closed-loop gas circuit sampling:
 
 1. Pump circulation (adjustable duration and intensity)
-2. Pump off, wait for pressure stabilization
+2. Stop pump, wait for pressure stabilization
 3. Read sensor data
 4. Real-time upload to server
 
-### Auto-Start Operation
+### Automatic Startup
 
-- Automatic startup on power-on, no manual intervention required
+- Power-on auto-start, no manual intervention required
 - Multi-WiFi hotspot support with automatic switching
-- Auto-recovery after power loss
-- Timestamp alignment to 10-minute intervals
+- Auto-resume after power recovery
+- Automatic timestamp alignment to fixed intervals
 
-### Timestamp Alignment Mechanism
+### Timestamp Alignment & NTP Synchronization
 
-The system ensures clean, aligned timestamps for data consistency:
+The system ensures accurate timestamps through a dual mechanism:
 
-- All data timestamps are aligned to exact 10-minute marks (`00:00`, `00:10`, `00:20`...)
-- Even though measurement takes ~45 seconds, the uploaded timestamp reflects the **scheduled time**, not completion time
-- After power recovery, the system calculates the next nearest aligned time
-- If less than 10 seconds remain until the next interval, it skips to the following one
+1. **NTP Time Sync**: Before each measurement cycle, the ESP32 synchronizes with an NTP server to correct accumulated drift in its internal RTC clock (embedded crystal oscillators can drift by several seconds to tens of seconds per day)
+2. **Grid Alignment**: All timestamps are aligned to 30-second boundaries (`00:00:00`, `00:00:30`, `00:01:00`...), ensuring uniform data intervals
 
-### Multi-Point Drift Compensation Algorithm
+**Significance of Timestamp Alignment**:
 
-**Problem**: Sealed gas circuits inevitably leak over time, causing CO2 readings to drift downward continuously.
+| Potential Issue | Impact Without Alignment | Role of Alignment Mechanism |
+| --------------- | ------------------------ | --------------------------- |
+| RTC Cumulative Drift | After a week, timestamps may drift by several minutes, causing temporal misalignment with real-world events (e.g., sunrise/sunset) | NTP calibration before each cycle ensures long-term time accuracy |
+| Non-uniform Sampling Intervals | Data point intervals fluctuate (e.g., 9m50s, 10m15s), compromising rate calculation accuracy | Strictly uniform intervals ensure reliability of mathematical analysis and interpolation |
+| Multi-device Data Fusion | Inconsistent time bases across devices preclude cross-comparison analysis | Unified time reference enables direct overlay and comparison of multi-source data |
+| Data Indexing Efficiency | Scattered timestamps (`14:07:23`, `14:17:41`...) reduce retrieval and archival efficiency | Regularized timestamps (`14:00:00`, `14:10:00`...) facilitate indexing and visualization |
+
+**Implementation Details**:
+- A single measurement takes ~45 seconds (25s pump sampling + 20s pressure stabilization), but the uploaded timestamp reflects the **scheduled time**, not the completion time
+- After power recovery, the system automatically calculates the next nearest 10-minute mark
+
+### Multi-Anchor Drift Compensation Algorithm
+
+**Problem**: Sealed gas circuits inevitably leak over time, causing a systematic downward drift in CO2 readings that masks the true biological activity signal.
 
 **Solution**: A non-linear drift compensation algorithm implemented in the frontend:
 
-1. **Anchor Selection**: User selects multiple "stable periods" where CO2 should be constant (e.g., nighttime when algae respiration is steady)
-2. **Slope Calculation**: Linear regression on each anchor period yields drift rate (ppm/h)
-3. **Interpolation**: Linear interpolation between anchors for smooth drift rate transition
-4. **Cumulative Correction**: Integrate drift rate over time and subtract from raw readings
+1. **Anchor Selection**: Users select multiple time periods where the CO2 **rate of change is stable** as calibration anchors
+   - These periods are characterized by steady-state biological activity, where CO2 changes should follow a linear trend (constant slope)
+   - **Typical anchor examples**:
+     - Pure respiration period (nighttime without light, respiration only — CO2 should rise linearly)
+     - Photosynthesis-respiration equilibrium (dynamic balance under stable illumination — CO2 should remain flat or change linearly)
+   - The difference between the **measured slope** and the **expected slope** within an anchor period represents the drift rate for that period
+
+2. **Slope Calculation**: Linear regression on each anchor period to extract drift rate (ppm/h)
+3. **Interpolated Transition**: Linear interpolation between anchors for smooth drift rate transitions
+4. **Cumulative Correction**: Integrate the drift rate over time, subtract accumulated drift from raw readings
 
 **Mathematical Expression**:
 
 - Anchor drift rate (linear regression slope):
-  
-  $$slope = \frac{n \sum x_i y_i - \sum x_i \sum y_i}{n \sum x_i^2 - (\sum x_i)^2}$$
+ 
+ $$slope = \frac{n \sum x_i y_i - \sum x_i \sum y_i}{n \sum x_i^2 - (\sum x_i)^2}$$
 
-- Corrected value (cumulative integration):
-  
-  $$CO_{2,corrected} = CO_{2,raw} - \int_0^t slope(\tau) \, d\tau$$
+- Corrected value (cumulative integral):
+ 
+ $$CO_{2,corrected} = CO_{2,raw} - \int_0^t slope(\tau) \, d\tau$$
 
 ### Complete IoT Data Pipeline
 
@@ -71,18 +88,18 @@ ESP32 Sampling → HTTP Upload → PHP Storage → ECharts Visualization
 | MCU | ESP32-S3-DevKitC-1 | Main controller |
 | CO2 Sensor | ZG09SR | NDIR infrared, Modbus RTU |
 | Air Pump | 5V Micro Pump | PWM controlled, closed-loop sampling |
-| Pump Driver | MOS Module (4-pin) | PWM signal amplification |
-| Temp/Humidity | DHT22/SHT30 etc. | **Reserved interface, not used** |
+| Pump Driver | MOS Driver Module (4-pin) | PWM signal amplification |
+| Temp/Humidity | DHT22/SHT30 etc. | **Reserved interface, not yet used** |
 
 ### Pin Connections
 
 | ESP32 Pin | Connected Device |
 | --------- | ---------------- |
-| GPIO 18 | MOS Module PWM (Pump control) |
+| GPIO 18 | MOS Driver Module PWM (Pump Control) |
 | GPIO 16 | ZG09SR RX |
 | GPIO 17 | ZG09SR TX |
 
-See [Hardware Documentation](docs/HARDWARE.md) for detailed wiring.
+See [Hardware Documentation](docs/HARDWARE.md) for complete wiring instructions.
 
 ## Quick Start
 
@@ -121,8 +138,8 @@ CREATE TABLE co2_measurements (
   id INT AUTO_INCREMENT PRIMARY KEY,
   timestamp DATETIME NOT NULL,
   co2_ppm INT NOT NULL,
-  temperature FLOAT DEFAULT NULL,  -- Reserved, not used
-  humidity FLOAT DEFAULT NULL,     -- Reserved, not used
+  temperature FLOAT DEFAULT NULL,  -- Reserved, not yet used
+  humidity FLOAT DEFAULT NULL,     -- Reserved, not yet used
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_timestamp (timestamp)
 );
@@ -130,18 +147,20 @@ CREATE TABLE co2_measurements (
 
 ### 3. Using Drift Compensation
 
-1. Open `index.html` in browser
-2. Select time range to query data
-3. In "Drift Compensation" panel, add anchor time periods (select periods when CO2 should be stable)
-4. Click "Apply Drift Compensation" to see results
+1. Open `index.html` in your browser
+2. Select a time range to query data
+3. In the "Drift Compensation" panel, add anchor periods
+   - Select periods where CO2 **rate of change is stable** (e.g., nighttime respiration-only period, photosynthesis equilibrium)
+   - The system calculates the measured slope; the difference from expected slope is the drift rate
+4. Click "Apply Drift Compensation" to see the result
 
 ## Serial Commands
 
 | Command | Function |
 | ------- | -------- |
 | auto | Resume automatic monitoring mode |
-| stop | Pause automatic, enter manual mode |
-| single | Single measurement (no upload in manual mode) |
+| stop | Pause automatic mode, enter manual mode |
+| single | Single measurement (manual mode, no upload) |
 | vent | Start ventilation function |
 | status | View current status |
 
@@ -151,14 +170,14 @@ Adjustable in `config.h`:
 
 | Parameter | Default | Description |
 | --------- | ------- | ----------- |
-| PUMP_DUTY_MEASURE | 120 | Sampling pump PWM duty (0-255) |
-| PUMP_DUTY_VENT | 150 | Ventilation pump PWM duty |
+| PUMP_DUTY_MEASURE | 120 | Sampling pump PWM duty cycle (0-255) |
+| PUMP_DUTY_VENT | 150 | Ventilation pump PWM duty cycle |
 | PUMP_TIME_MEASURE | 25 | Sampling pump run time (seconds) |
 | PUMP_TIME_VENT | 50 | Ventilation pump run time (seconds) |
 | SENSOR_STABILIZE_TIME | 20 | Pressure stabilization wait time (seconds) |
-| INTERVAL_SECONDS | 600 | Measurement interval (fixed 10min, aligned)* |
+| INTERVAL_SECONDS | 600 | Measurement interval (fixed 10 min, grid-aligned)* |
 
-> *Note: Modifying `INTERVAL_SECONDS` requires also modifying the alignment logic. See `getNextAlignedEpoch()` function in source code.
+> *Note: Modifying `INTERVAL_SECONDS` requires corresponding changes to the alignment logic. See `getNextAlignedEpoch()` function in source code. A single complete measurement duration should be significantly shorter than the measurement interval to prevent cycle overlap.
 
 ## Project Structure
 
@@ -172,7 +191,7 @@ esp32-co2-drift-compensator/
 ├── web/                   # Web Frontend + PHP Backend
 │   ├── index.html         # Data visualization page
 │   ├── get_data.php       # Data query API
-│   ├── sensor_data.php    # Data receiving API
+│   ├── sensor_data.php    # Data reception API
 │   └── config.php.example
 ├── data/
 │   └── sample_data.sql    # Sample data (Jan 3-9 test)
@@ -182,12 +201,12 @@ esp32-co2-drift-compensator/
 └── README.md
 ```
 
-## Use Cases
+## Application Scenarios
 
-This project was originally developed for monitoring algae respiration in sealed chambers, but the concepts and approaches can be applied to other scenarios involving:
+This project was originally developed to monitor algae respiration in sealed chambers, but the concepts are applicable to other scenarios involving:
 
 - Poor gas circuit sealing
-- Long-term continuous monitoring of CO2 or other gases
+- Long-term continuous CO2 or other gas monitoring
 - Sensor long-term drift issues
 
 ## Tech Stack
